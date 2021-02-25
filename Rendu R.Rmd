@@ -1,0 +1,693 @@
+---
+title: 'Projet Semestriel : Mathématiques pour le Big Data'
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  html_notebook: default
+---
+
+| Nom     | Prénom |
+|---------|--------|
+| CAI     | Eddy   |
+| MBAE    | Hakim  |
+| SHEIKH  | Rakib  |
+| TARANTO | Tom    |
+
+
+#### **Exercice 1 : Cas d'une matrice non diagonalisable** ####
+
+Soit la matrice 
+$$\mathbf{A} = \left[\begin{array}
+{rrr}
+0 & 2 & 2 \\
+-1 & 2 & 2 \\
+-1 & 1 & 3
+\end{array}\right]
+$$
+
+**1. Ecrire une fonction qui calcule les valeurs propres ainsi que leur multiplicité d'une matrice carrée quelconque. Appliquer sur $A$**
+
+```{r}
+library(limSolve)
+library(expm)
+
+#Q1
+A= matrix(c(0,2,2,-1,2,2,-1,1,3), nrow = 3, byrow = T)
+q1<-function(A){
+  valeurs<-Re(eigen(A)$values)
+  print(valeurs)
+  res<-table(valeurs)
+  print(res)
+  return(res)
+}        
+
+A
+res<-as.matrix(q1(A))
+res
+
+dim(res)
+eigen(A)$values
+```
+
+**2. Donner les vecteurs propres de $A$ pour chaque valeur propre. Pourquoi $A$ n'est pas diagonalisable ? Justifier.**
+
+```{r}
+vec_propre<-Re(eigen(A)$vectors)
+vec_propre
+```
+
+> La multiplicité de la valeur propre 2 est 2, elle n'est donc pas inversible.
+> On retrouve une valeur propre double donc non diagonalisable.
+
+**3. Donner la matrice de Jordan $J$ de $A$ ainsi qu'une matrice de passage $P$ permettant d'effectuer le changement de base entre $A$ et $J$ . Calculer $P-1$ et vérifier le changement de base**
+
+```{r}
+#Q3
+#On réarrange les vecteurs propres pour les mettre dans le bon ordre
+vec_propre<-vec_propre[,c(3,1,2)]
+
+I3<-diag(1,nrow = 3)
+
+
+#Pour trouver une base du sous-espace propre associé à lambda = 2,
+#On cherche un antécédent du vecteur propre associé à lambda=2 par A-2*I3
+new_vect<-Solve(A-2*I3, vec_propre[,2])
+
+#On remplace ce nouveau vecteur dans la matrice de passage
+vec_propre[,3]<-new_vect
+
+P<-vec_propre
+#La matrice de Jordan est composée des blocs de Jordan
+
+#retourne le bloc de Jordan correspondant à vp l de multiplicité m
+jordan_block<-function(l,m){
+  if( m == 1) return(l)
+  else{
+    res<-matrix(rep(0,m*m), nrow = m)
+    for (i in c(1:m)) {
+      res[i,i]<-l
+    }
+    for (i in c(1:(m-1))) {
+      res[i,i+1]<-1
+    }
+    return(res)
+    }
+  
+}
+
+#Retourne la matrice de Jordan associée aux valeurs propres
+jordan_matrix<-function(val, multi){
+  n<-sum(multi)
+  res<-matrix(rep(0,n*n), nrow = n)
+  idx<-1
+  for (i in c(1:length(multi))) {
+    jb<-jordan_block(val[i], multi[i])
+    res[idx:(idx+multi[i]-1),idx:(idx+multi[i]-1)]<-jb
+    idx<-idx + multi[i]
+  }
+  return(res)
+}
+
+#Valeurs propres : 1, 2. Multiplicité de 1:1 , multiplicité de 2 : 2
+J<-jordan_matrix(c(1,2),c(1,2))
+J
+P
+solve(P, tol = NULL)
+
+#On vérifie que l'on tombe bien sur A
+
+q <- P%*%J%*%solve(P, tol = NULL)
+print("Verifions que PJP-1 = A")
+q
+A
+```
+
+
+**4. On pose**
+
+$$\begin{cases} a_{n+1} = 2b_n +2c_n \\ b_{n+1} = -a_n + 2b_n + 2c_n & \mbox{avec } a_0 = 1, b_0 = 2, c_0 =-3 \\  c_{n+1} = -a_n  + b_n + 3c_n \end{cases}$$
+En utilisant $J^{25}$, $P$ et $P^{-1}$, écrire une fonction qui retourne $a_25$, $b_25$ , $c_25$
+
+```{r}
+#Q4
+
+library(expm)
+# Fonction calculant les n-ieme termes de la suite a_n
+abc<-function(J,P,N){
+  X0<-c(1,2,-3)
+  JN<-J%^%N
+  res<-P %*% JN %*% solve(P) %*% X0
+  return(res)
+  
+}
+X0<-c(1,2,-3)
+abc(J,P,25)
+```
+
+
+#### **Exercice 2 : Interpolation de données** #### 
+
+**Soit un nuage de points 2D : $\Delta = \{(x_i , y_i), i = 0, ..., n\}$ . On suppose que $x_0 < x_1 < ... < x_n$ sont des entiers relatifs triés et $y_0, y_1 , ..., y_n$ des entiers relatifs quelconques**
+
+**On souhaite interpoler $\Delta$ par un polynôme de degré inférieure ou égal à $n$.**
+
+**1. Créer une fonction qui génère graphiquement $\Delta$ aléatoirement tel que l'utilisateur saisisse le nombre de points et $a, b, c, d$ pour que $\forall i = 0, ..., n, a \leq x_i \leq b, c \leq y_i \leq d$ . Proposer un exemple.**
+
+```{r}
+library(polynom)
+
+options(digits=10)
+
+#Question 1
+
+#Fonction de génération de delta
+generate <- function(N,a,b,c,d){
+  #Wichmann-Hill generator to reduce the number of duplicates
+  RNGkind("Wich")
+  #Xi
+  X<-sort(runif(n = N, min = a, max = b))
+  #Yi
+  Y<-runif(n = N, min = c, max = d)
+  L<-list("X" = X, "Y" = Y)
+  return(L)
+}
+
+#On génère les X entre 0 et 10 et les y entre -5 et 5 avec 10 valeurs
+delta<-generate(10,0,10,-5,5)
+#On affiche le résultat graphiquement
+#plot(delta$X, delta$Y, xlim = c(0,10), ylim = c(-5,5))
+```
+
+2. Donner la matrice de vandermonde permettant un première interpolation polynomiale de $\Delta$ , avec $n = 9$, puis $n = 19$ et enfin $n = 29$. Que constate-t-on ? Retourner et tracer si possible le polynôme d'interpolation.
+
+```{r}
+#Retourne la matrice de Vandermonde pour les Xi données
+vandermonde <- function(xi){
+  N<-length(xi)
+  #On créé la matrice contenant les xi
+  res<-matrix(rep(xi,N),ncol = N)
+  #On les met a la bonne puissance
+  res<-res^(col(res)-1)
+  return(res)
+}
+
+#Matrice de vandermonde pour nos données
+vdm<-vandermonde(delta$X)
+vdm
+```
+
+
+```{r}
+
+#Fonction retournant les coefficients du polynôme d'interpolation grâce a Vandermonde
+coef_vdm<-function(d){
+  
+  #mat[mat < 0.1] <- NA
+  #print(vandermonde(d$X))
+  coeff<- solve(round(vandermonde(d$X), digits = 8),matrix(d$Y, ncol=1), tol = NULL)
+  return(coeff)
+}
+
+coef<-coef_vdm(delta)
+
+p = as.polynomial(coef)
+
+#Avec le détail
+plot(p, ylim = c(-50,50), xlim = c(-1,15))
+points(delta$X, delta$Y)
+#Avec la courbe s'affichant sur le dernier point
+plot(p, ylim = c(-700,700), xlim = c(-1,15))
+points(delta$X, delta$Y)
+
+print(p)
+
+ex_deux_q_deux<-function(N){
+  delta<-generate(N,0,10,-5,5)
+  vdm<-vandermonde(delta$X)
+  p<-as.polynomial(coef_vdm(delta))
+  print(p)
+  plot(p, ylim = c(-50,50), xlim = c(-1,15))
+  points(delta$X, delta$Y)
+}
+
+ex_deux_q_deux(9)
+ex_deux_q_deux(19)
+ex_deux_q_deux(29)
+```
+
+>On peut remarquer que les valeurs des coefficients diminuent lorsque la puissance de $x$ augmente.
+>
+>On voit que la matrice de Vandermonde ne possède pas de creux. L'inversibilité de cette matrice est donc complexe à calculer.
+>
+>On voit aussi que l'affichage des polynômes n'est pas bien rendu. Cela est dû au moteur $r$, nos fonctions passent bien par les points concernés.
+
+
+**3. Donner la matrice de Newton permettant une seconde interpolation polynomiale de $\Delta$ , avec $n = 9$, puis $n = 19$ et enfin $n = 29$. Comparer avec la méthode précédente. Retourner et tracer si possible le polynôme d'interpolation**
+
+```{r}
+
+#Fonction et création de la matrice de Newton
+
+newton<-function(xi){
+  N<-length(xi)
+  res<-matrix(rep(1,N*N),ncol = N)
+  #On parcourt les colonnes
+  for (k in (2:N)) {
+    #On parcourt les lignes
+    for (j in (1:N)){
+      res[j,k] <- res[j,k-1] * (xi[j] - xi[k-1])
+    }
+  }
+  return(res)
+}
+
+#Fonction retournant les coefficients du polynôme d'interpolation grâce a la matrice de Newton
+coef_newton<-function(d){
+  coeff<-solve(newton(d$X), tol = NULL)%*% d$Y
+  return(coeff)
+}
+
+#Fonction retournant le polynôme d'interpolation grâce aux coefficients
+polynome_newton_from_coef<-function(x,coefs){
+  a<-coefs
+  n<-length(x)-1
+  p = a[n+1]
+  for (k in c(1:n)){
+    p = a[n-k+1] + (polynomial(coef = c(0,1)) - x[n-k+1]) * p
+  }
+  return(p)
+}
+
+#Fonction question 3 exo 2
+ex_deux_q_trois<-function(N){
+  delta<-generate(N,0,10,-5,5)
+  #Affichage de la matrice de Newton
+  print(newton(delta$X))
+  #Calcul des coefs grâce a la matrice
+  coefficients1<-coef_newton(delta)
+  #Calcul du polynôme
+  p1<-polynome_newton_from_coef(delta$X, coefs = coefficients1)
+  print(p1)
+  plot(p1, ylim = c(-50,50), xlim = c(-1,15), main = "Méthode matrice")
+  points(delta$X, delta$Y)
+}
+ex_deux_q_trois(9)
+ex_deux_q_trois(19)
+ex_deux_q_trois(29)
+```
+
+* La première calcule la matrice de Newton
+* La deuxième calcule les coefficients du polynôme dans la base de Newton
+* La troisième calcule les coefficients du polynôme dans la base canonique de $R[X]$
+* On remarque que la matrice de Newton est triangulaire, on peut l'inverser très facilement avec le pivot de Gauss. Le calcul est donc plus rapide qu'avec la méthode de Vandermonde. En revanche, il faut projeter le polynôme obtenu dans la base canonique de $R[X]$
+
+
+**4. Toujours, pour l'interpolation de Newton, implémenter le tableau des différences divisées afin de calculer et tracer le polynôme d'interpolation.**
+
+```{r}
+#Fonction de calcul des différences divisées
+diff_div_coef<-function(x,y){
+  m <-length(x)
+  res<-y
+  for (k in c(2:m)) {
+    res[k:m]<-(res[k:m] - res[k-1])/(x[k:m] - x[k-1])
+  }
+  return(res)
+}
+
+#Fonction question 4 exo 2
+ex_deux_q_quatre<-function(N){
+  delta<-generate(N,0,10,-5,5)
+  
+  #Cette fois-ci on calcule les coefficients grâce aux différences divisées 
+  coefficients2<-diff_div_coef(delta$X,delta$Y)
+  #On calcule le polynô me associé
+  p2<-polynome_newton_from_coef(delta$X, coefficients2)
+  print(coefficients2)
+  print(p2)
+  plot(p2, ylim = c(-N*N, N*N), xlim = c(-1,15), main = "Methode differences divisées")
+  points(delta$X, delta$Y)
+}
+ex_deux_q_quatre(9)
+ex_deux_q_quatre(19)
+ex_deux_q_quatre(29)
+```
+
+**5. Appliquer les fonctions des questions 2, 3 et 4 à**
+$$ \Delta = \{(0, 2), (1, 6), (2, 12), (3, 20), (4, 30), (5, 42), (6, 56), (7, 72), (8, 90), (9, 110)\}$$
+**Comparer les résultats et donner le polyôme d'interpolation P dans la base canonique des polynômes. Prévision : calculer $P(10), P(15)$ et $P(20)$**
+
+```{r}
+
+
+ex_deux_q_cinq<-function(){
+  delta$X<-c(0,1,2,3,4,5,6,7,8,9)
+  delta$Y<-c(2,6,12,20,30,42,56,72,90,110)
+  #Polynôme question 2
+  vdm<-vandermonde(delta$X)
+  p1<-as.polynomial(coef_vdm(delta))
+  
+  #Polynôme question 3
+  coefficients1<-coef_newton(delta)
+  p2<-polynome_newton_from_coef(delta$X, coefs = coefficients1)
+  
+  #Polynôme question 4
+  coefficients2<-diff_div_coef(delta$X,delta$Y)
+  #On calcule le polynome associé
+  p3<-polynome_newton_from_coef(delta$X, coefs = coefficients2)
+  
+  
+  print("Vandermonde : Y = ")
+  print(p1)
+  print("Matrice de Newton : Y = ")
+  print(p2)
+  print("Différences divisées : Y = ")
+  print(p3)
+  
+  for (new_val in c(5,10,15)) {
+    cat("Vandermonde : X = ", new_val, " P(X) = ", predict(p1,new_val),"\n")
+    cat("Matrice de Newton : X = ", new_val, " P(X) = ", predict(p2,new_val),"\n")
+    cat("Différences divisées : X = ", new_val, " P(X) = ", predict(p3,new_val), "\n")
+  }
+  
+}
+ex_deux_q_cinq()
+
+```
+
+#### **Exercice 3 : Approximation de données** ####
+
+**1. Créer une fonction qui génère graphiquement $\Delta$ aléatoirement tel que l\'utilisateur saisisse le nombre de points, l\'incertitude $\epsilon$ et $a, b, c, d$ pour que $\forall i = 0, ..., n, a \leq x_i \leq b, c \leq y_i \leq d$ . Proposer plusieurs exemple avec $\epsilon = 0.03 , \epsilon = 0.5 , \epsilon = 1 et \epsilon = 5$**
+
+```{r}
+generate<-function(N,e,a,b,c,d){
+  
+  RNGkind("Wich")
+  #Xi
+  X<-sort(runif(n = N, min = a, max = b))
+  #Yi
+  Y<-rep(c,N)
+  Y[1]<-runif(1,c,d)
+  
+  for (i in c(2:N)) {
+    Y[i]<-runif(1,min = max(Y[i-1] - e,c), max = min(Y[i-1] + e, d))
+  }
+  
+  L<-list("X" = X, "Y" = Y)
+  return(L)
+}
+
+q1<-function(){
+for (e in c(0.03,0.5,1,5)) {
+  delta<-generate(500,e,0,10,0,15)
+  plot(delta$X,delta$Y, main = paste("epsilon = ",e))
+  
+  }  
+}
+q1()
+```
+
+**2. Comment choisir le degré du polynôme d\'interpolation de $\Delta$ ? Donner un critère de choix et écrire la fonction.**
+
+```{r}
+q2<-function(){
+  
+  delta<-generate(500,0.1,0,10,0,5)
+  plot(delta$X,delta$Y)
+  
+  # degre<-readline(prompt = "Combien de pics voyez vous?")
+  
+ # return((as.integer(degre)+1))
+  
+  
+}
+q2()
+```
+
+**3. Déterminer le polynôme d\'approximation par la méthode des moindres carrés. Effectuer le tracé.**
+
+```{r}
+
+vandermonde <- function(N, xi) {
+  N <- N+1
+  #On creer la matrice contenant les xi
+  res <- matrix(rep(xi, N), ncol = N)
+  #On les met a la bonne puissance
+  res <- res^(col(res)-1)
+  return(res)
+}
+
+aux <- function(delta) {
+  plot(delta$X, delta$Y)
+  degre <- readline(prompt = "Combien de pics voyez vous?")
+  return((as.integer(degre) + 1))
+}
+
+q3<-function(N, d) {
+  m <- vandermonde(N, d$X)
+  y0 <- d$Y
+  m[m < 10^-6] <- 0
+  res <- solve(t(m) %*% m, tol = NULL) %*% t(m) %*% y0
+  return(res)
+}
+
+delta<-generate(500,0.1,0,10,0,5)
+#d<-aux(delta)
+#print(d)
+
+for (d in c(1,3,5,7,9)) {
+  res <- q3(d, delta)
+  print(as.polynomial(res))
+  plot(as.polynomial(res), ylim = c(-1,max(delta$Y) +2), xlim = c(-1,15), main = paste("Methode plus petits carres",d))
+  points(delta$X, delta$Y)
+}
+
+```
+
+**4. Soit le nuage de points suivant à traiter $\Delta = \{(0, 2), (1, 1), (2, 0), (3, -1), (4, -3), (6, -1), (7, 0), (9, 2), (11, 4), (12, 5), (15, 7), (16, 10), (17, 8), (18, -3), (20, -10)\}$**
+
+**Fixer $\epsilon$ et donner un polynôme d'interpolation $P$ en fonction du degré choisi. Prévision : calculer $P(22), P(25)$ et $P(50)$**
+
+```{r}
+delta$X<-c(0,1,2,3,4,6,7,9,11,12,15,16,17,18,20)
+delta$Y<-c(2,1,0,-1,-3,-1,0,2,4,5,7,10,8,-3,-10)
+
+
+find_epsilon<-function(d){
+  m<-0
+  for (i in c(2:length(d$Y))){
+    m<-max(abs(d$Y[i] - d$Y[i-1]), m)  
+  }
+  return(m)
+  
+}
+
+e<-find_epsilon(delta)
+e
+#On affiche le nuage de points
+plot(delta$X,delta$Y)
+#Un polynôme de degre 3 semble convenir
+d<-4
+
+res<-q3(d,delta)
+p<-as.polynomial(res)
+print(p)
+plot(p, ylim = c(min(delta$Y) -2,max(delta$Y) +2), xlim = c(min(delta$X) -2,max(delta$X) +2), main = paste("Methode plus petits carres",d))
+points(delta$X, delta$Y)
+
+for (xi in c(22,25,50)) {
+  print(predict(p, xi))
+}
+```
+
+
+#### Exercice 4 : Palindromes #### 
+
+**1. Créer une fonction qui identifie les mots ou phrases palindromiques (mots ou phrases qui se lisent dans les deux sens, par exemple RADAR).**
+
+**Cette fonction prendra comme argument le mot "mot" et retournera les phrases :** *"mot est un palindrome"* **si le mot = palindrome et *"mot n'est pas un palindrome"*, sinon.**
+
+```{r}
+library(stringr)
+
+is_palindrome <- function(mot) {
+  #supprime les espaces
+  mot1 <- gsub(' ','',mot)
+  #définition du mot inversé
+  split_word <- unlist((str_split(mot1, pattern = "")))
+  reverse_word <- split_word[str_length(mot1):1]
+  paste_word <- paste(reverse_word, collapse = "")
+  #comparaison du mot originel et de son inverse
+  if (mot1 == paste_word){
+    cat(mot, "\t: est un palindrome\n")
+  }
+  else{
+    cat(mot, "\t: n'est pas un palindrome\n")
+  }
+}
+```
+
+**2. Appliquer votre fonction sur les mots** *"radar"*, *"bonne année"*, *"sept"*, *"kayak"*, *"la mariée ira mal"*, *"statistiques"*, *"engage le jeu que je le gagne"*, *"esope reste ici et se repose"*.
+
+```{r}
+is_palindrome("radar")
+is_palindrome("bonne année")
+is_palindrome("sept")
+is_palindrome("kayak")
+is_palindrome("la mariée ira mal")
+is_palindrome("statistiques")
+is_palindrome("engage le jeu que je le gagne")
+is_palindrome("esope reste ici et se repose")
+```
+
+**3. Créer une fonction qui retourne tous les mots palindromiques d'au plus 9 lettres dans un dictionnaire.**
+
+```{r}
+palindrome9 <- function(liste){
+  for (i in liste){
+    if(str_length(i) < 10){
+      mot <- gsub(' ','',i)
+      split_word <- unlist((str_split(mot, pattern = "")))
+      reverse_word <- split_word[str_length(mot):1]
+      paste_word <- paste(reverse_word, collapse = "")
+      if (mot == paste_word){
+        message(i)
+      }
+    }
+  }
+}
+
+liste <- list("radar","bonne année","sept")
+palindrome9(liste)
+```
+
+#### **Exercice 5 : ACP** ###
+
+##### **A. Analyse rapide** #####
+**1. Récupérer les données du fichier "decathlon" et donner la matrice corrélation des variables quantitatives (ne pas prendre COMPET)**
+
+```{r}
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+```
+
+```{r}
+deca<-read.table("decathlon.dat")
+
+print(deca)
+corrplot(cor(deca[ , !(names(deca) %in% c("COMPET"))]))
+```
+
+**2. Quelles sont les couples de variables les plus corrélées, les moins corrélées, les plus opposées ? Justifier.**
+
+Les couples de variables les plus corrélés sont :
+
+*   POINTS --> LONGEUR
+*   POINTS --> POIDS
+*   C110 --> C100
+*   C400 --> C100
+*   Disque --> Poids
+*   C110 --> C400
+*   Rang --> C400
+
+On voit que les épreuves de lancer et les épreuves de courses sont corrélées entre elles
+
+Les moins corrélées sont :
+
+*   C1500 --> C100
+*   C1500 --> Long
+*   Perche --> Poids
+*   C1500 --> Poids
+*   C1500 --> Haut
+*   Perche --> C400
+*   Javel --> C400
+*   Perche --> C110
+*   Javel --> C110
+*   C1500 --> C110
+*   Rang --> C1500
+
+Les moins corrélées sont les épreuves les plus différentes.
+
+Les plus opposées :
+
+*   C100 --> long
+*   C100 --> POINTS
+*   long --> C400
+*   long --> Rang
+*   Point --> C400
+*   Point --> C110
+*   Point --> Rang
+
+**3. Comment se groupent les variables du point de vue des signes de corrélation ? Expliquez pourquoi.**
+
+*   Les épreuves concernant des sports similaires montrent une corrélation positive (course et lancer).
+*   Une corrélation négative apparait entre le rang et le score, cela s'explique, car il faut avoir un score élevé pour avoir un rang faible.
+
+
+##### **B. ACP : dans cette partie, vous allez procédez à une analyse en composantes principales des performances centrées-réduites, en excluant les variables RANG, POINTS et COMPET.** #####
+
+**4. Donner les valeurs propres de la matrice de corrélation. Trier ces valeurs propres et donner le nombre de vecteurs propres qui expliquent le plus l'inertie du nuage des individus. Quelle règle peut-on utiliser ? Donner le pourcentage d'inertie totale en conservant les trois premiers vecteurs propres.**
+
+```{r}
+deca<-deca[ , !(names(deca) %in% c("COMPET","RANG","POINTS"))]
+correlation<-cor(deca)
+ev<-eigen(correlation)$values
+ev
+sort(ev, decreasing = T)
+plot(ev)
+```
+
+On utilise la règle du coude, la cassure apparait pour la cinquième valeur propre.
+
+```{r}
+sum((sort(ev,decreasing = T) / sum(ev))[1:3])
+```
+64% de l'inertie est expliquée par les trois premières valeurs propres.
+
+
+**5. Déterminer les trois composantes principales (projection des individus sur les trois vecteurs propres), que l'on note $C1$, $C2$, $C3$ dans l'ordre décroisant d'inertie.**
+
+```{r}
+res.pca <- PCA(deca, graph = F)
+#Q5
+#Composantes principales
+ind <- get_pca_ind(res.pca)
+ind$coord[,1:3]
+C1<-ind$coord[,1]
+C2<-ind$coord[,2]
+C3<-ind$coord[,3]
+```
+
+**6. Déterminer le tableau des corrélations des variables par rapport à $C1, C2, C3$ et donner les deux cercles de corrélation des variables par rapport à $(C1, C2)$ et $(C2, C3)$**
+
+```{r}
+var <- get_pca_var(res.pca)
+corrplot(var$contrib[,c(1:3)], is.corr=FALSE)
+fviz_pca_var(res.pca, col.var = "contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07") , axes = c(1,2))
+
+fviz_pca_var(res.pca, col.var = "contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07") , axes = c(2,3))
+```
+
+**7. Quelles sont les variables qui déterminent les 3 composantes principales ? Proposez un seuil.**
+
+```{r}
+res.desc <- dimdesc(res.pca, axes = c(1,2,3), proba = 0.05)
+res.desc$Dim.1$quanti
+res.desc$Dim.2$quanti
+res.desc$Dim.3$quanti
+```
+
+Nous proposons un seuil de 50% de la valeur absolue de la corrélation.
+
+**8. Expliquez comment les données peuvent être modifiées pour faire apparaître un effet de taille. Comment peut-on alors interpréter les axes principaux de la question 5 ?**
+
+```{r}
+taille.pca <- PCA(deca, graph = T, scale.unit = F)
+taille.desc <- dimdesc(taille.pca, axes = c(1,2), proba = 0.05)
+taille.desc$Dim.1$quanti
+taille.desc$Dim.2$quanti
+```
+
+On peut modifier les données en ne centrant pas et en ne les réduisant pas. Un effet de taille apparait alors. L'axe principale est expliqué "uniquement" par le 1500 mètres. Le deuxième axe principal par le javelot.
